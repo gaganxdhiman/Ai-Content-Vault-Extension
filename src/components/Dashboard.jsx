@@ -1,89 +1,131 @@
 import { useState, useEffect } from "react";
 
-const dummyUser = {
-  name: "Gaganpreet Singh",
-  email: "gagan@example.com",
-};
-
-const dummyStats = {
-  totalLinks: 128,
-  instagramLinks: 76,
-};
-
-const Dashboard = ({setLoading, token, setToken}) => {
-     const [user, setUser] = useState(null);
-    const [stats, setStats] = useState({})
-
-
-useEffect(async () => {
-    
-  const response = await fetch(
-  "https://aicontentvault.site/api/extension/stats",
-  {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  }
+const BookmarkIcon = () => (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+  </svg>
 );
 
-const data = await response.json();
+const InstagramIcon = () => (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+    <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+  </svg>
+);
 
-if (response.ok) {
-  setStats(data.stats);
-  console.log(data.stats)
-}
-}, [])
+const YoutubeIcon = () => (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"></path>
+    <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" fill="currentColor"></polygon>
+  </svg>
+);
 
+const Dashboard = ({ setLoading, token, setToken }) => {
+  const [user, setUser] = useState(null);
+  const [stats, setStats] = useState({});
 
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const response = await fetch(
+          "https://aicontentvault.site/api/extension/stats",
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
 
-     const handleLogout = async () => {
+        const data = await response.json();
+
+        if (response.ok) {
+          setStats(data.stats);
+          console.log(data.stats);
+        }
+      } catch (err) {
+        console.error("Stats fetch error:", err);
+      }
+    };
+
+    fetchStats();
+  }, [token]);
+
+  const handleLogout = async () => {
     await chrome.storage.local.remove("token");
     setToken(null);
-    setError("");
   };
+
   useEffect(() => {
-  const loadUser = async () => {
-    try {
-      const { token } = await chrome.storage.local.get("token");
+    const loadUser = async () => {
+      try {
+        const { token } = await chrome.storage.local.get("token");
 
-      if (!token) {
-        setToken(null);
-        return;
-      }
-
-      setToken(token);
-
-      const response = await fetch(
-        "https://aicontentvault.site/api/extension/me",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        if (!token) {
+          setToken(null);
+          return;
         }
-      );
 
-      if (response.status === 401) {
-        await chrome.storage.local.remove("token");
-        setToken(null);
-        return;
+        setToken(token);
+
+        const response = await fetch(
+          "https://aicontentvault.site/api/extension/me",
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (response.status === 401) {
+          await chrome.storage.local.remove("token");
+          setToken(null);
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error("Failed to load user details.");
+        }
+
+        const data = await response.json();
+        setUser(data.user);
+      } catch (error) {
+        console.error("Profile loading failed:", error);
+      } finally {
+        setLoading(false);
       }
+    };
 
-      if (!response.ok) {
-        throw new Error("Failed to load user details.");
-      }
-
-      const data = await response.json();
-      setUser(data.user);
-    } catch (error) {
-      console.error("Profile loading failed:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  loadUser();
-}, []);
+    loadUser();
+  }, []);
 
   const openVault = () => {
     chrome.tabs.create({
@@ -92,84 +134,81 @@ if (response.ok) {
   };
 
   return (
-      <div className="app">
-        <div className="dashboard">
-          <header className="dashboard-header">
-            <div className="brand">
-              <div className="logo">
-                <span>AI</span>
-              </div>
-
-              <div>
-                <h1>AI Content Vault</h1>
-                <p className="subtitle">
-                  Your personal content library
-                </p>
-              </div>
+    <div className="app">
+      <div className="dashboard">
+        <header className="dashboard-header">
+          <div className="brand">
+            <div className="logo">
+              <span>AI</span>
             </div>
 
-            <button
-              className="logout-btn"
-              onClick={handleLogout}
-            >
-              Log out
-            </button>
-          </header>
-
-          <section className="profile-section">
-            <div className="avatar">
-              {dummyUser.name.charAt(0)}
+            <div>
+              <h1>AI Content Vault</h1>
+              <p className="subtitle">Your personal library</p>
             </div>
+          </div>
 
-            <div className="profile-info">
-              <p className="section-label">SIGNED IN AS</p>
-              <h2><p className="email">{user?.email || "Loading..."}</p></h2>
-              
-            </div>
+          <button className="logout-btn" onClick={handleLogout}>
+            Log out
+          </button>
+        </header>
 
-            <span className="status-dot" />
-          </section>
+        <section className="profile-section">
+          <div className="avatar">
+            {user?.email ? user.email.charAt(0).toUpperCase() : "A"}
+          </div>
 
-          <section className="stats-grid">
-            <div className="stat-card">
-              <span className="stat-icon">🔖</span>
-              <h2>{stats.totalLinks}</h2>
-              <p>Saved links</p>
-            </div>
+          <div className="profile-info">
+            <p className="section-label">SIGNED IN AS</p>
+            <p className="email">{user?.email || "Loading..."}</p>
+          </div>
 
-            <div className="stat-card">
-              <span className="stat-icon">📸</span>
-              <h2>{stats.instagramLinks}</h2>
-              <p>Instagram saves</p>
-            </div>
-            <div className="stat-card">
-              <span className="stat-icon">📸</span>
-              <h2>{stats.youtubeLinks}</h2>
-              <p>Youtube saves</p>
-            </div>
-          </section>
+          <span className="status-dot" />
+        </section>
 
-          <section className="quick-action">
-            <h3>Ready to save?</h3>
-            <p>
-              Open an Instagram Reel or post and save it
-              directly to your vault.
-            </p>
+        <section className="stats-grid">
+          <div className="stat-card">
+            <span className="stat-icon">
+              <BookmarkIcon />
+            </span>
+            <h2>{stats.totalLinks ?? 0}</h2>
+            <p>Saved links</p>
+          </div>
 
-            <button
-              className="primary-btn"
-              onClick={openVault}
-            >
-              Open Content Vault ↗
-            </button>
-          </section>
+          <div className="stat-card">
+            <span className="stat-icon">
+              <InstagramIcon />
+            </span>
+            <h2>{stats.instagramLinks ?? 0}</h2>
+            <p>Instagram</p>
+          </div>
 
-          <p className="footer-note">
-            Save it now. Find it whenever you need it.
+          <div className="stat-card">
+            <span className="stat-icon">
+              <YoutubeIcon />
+            </span>
+            <h2>{stats.youtubeLinks ?? 0}</h2>
+            <p>YouTube</p>
+          </div>
+        </section>
+
+        <section className="quick-action">
+          <h3>Ready to save?</h3>
+          <p>
+            Open an Instagram Reel or YouTube video and save it directly to your vault.
           </p>
-        </div>
-      </div>
-  )
-}
 
-export default Dashboard
+          <button className="primary-btn" onClick={openVault}>
+            Open Content Vault ↗
+          </button>
+        </section>
+
+        <p className="footer-note">
+          Save it now. Find it whenever you need it.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+export default Dashboard;

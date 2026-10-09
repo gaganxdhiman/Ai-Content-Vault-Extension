@@ -1,10 +1,8 @@
-
 import { useEffect, useState } from "react";
 import "./App.css";
-import Dashboard from "./components/Dashboard"
+import Dashboard from "./components/Dashboard";
 
 function App() {
- 
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loginLoading, setLoginLoading] = useState(false);
@@ -81,31 +79,30 @@ function App() {
     );
   };
 
- 
   if (loading) {
     return (
       <div className="app">
-        <div className="login-card">
+        <div className="login-card loading-card">
           <p>Loading AI Content Vault...</p>
         </div>
       </div>
     );
   }
 
-  // Dashboard: shown when the user has a stored token
   if (token) {
     return (
       <Dashboard token={token} setLoading={setLoading} setToken={setToken} />
     );
   }
 
-  // Original login page
   return (
     <div className="app">
       <div className="login-card">
-        <div className="logo">
-          <span>AI</span>
-        </div>
+    
+
+        <span className="badge-tag">[ LOGIN/REGISTER ]</span>
+   
+       
 
         <h1>AI Content Vault</h1>
 
@@ -119,8 +116,8 @@ function App() {
           disabled={loginLoading}
         >
           <svg
-            width="18"
-            height="18"
+            width="16"
+            height="16"
             viewBox="0 0 24 24"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
@@ -145,12 +142,10 @@ function App() {
 
           {loginLoading
             ? "Signing in..."
-            : "Continue with Google"}
+            : "Continue with Google →"}
         </button>
 
-        {error && (
-          <p className="error-message">{error}</p>
-        )}
+        {error && <p className="error-message">{error}</p>}
 
         <p className="terms">
           By continuing, you agree to use AI Content Vault.
