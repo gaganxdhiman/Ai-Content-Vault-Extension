@@ -1,5 +1,5 @@
 
-console.log("ACV: YouTube script loaded");
+// console.log("ACV: YouTube script loaded");
 
 let acvMenuSession = 0;
 
@@ -117,7 +117,7 @@ function acvFindMenu() {
     });
 
     if (visibleMenu) {
-      console.log("ACV: Mobile menu found:", selector);
+      // console.log("ACV: Mobile menu found:", selector);
       return visibleMenu;
     }
   }
@@ -145,7 +145,7 @@ function acvFindMenu() {
     });
 
     if (visibleMenu) {
-      console.log("ACV: Desktop menu found:", selector);
+      // console.log("ACV: Desktop menu found:", selector);
       return visibleMenu;
     }
   }
@@ -301,7 +301,7 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
     status.style.display = "none";
 
     try {
-      console.log("ACV: Saving URL:", videoUrl);
+      // console.log("ACV: Saving URL:", videoUrl);
 
       const data = await chrome.runtime.sendMessage({
         type: "ACV_SAVE_LINK",
@@ -343,10 +343,10 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
       acvCloseMenu(menuButton, wrapper);
       acvShowToast("Saved to AI Content Vault!");
 
-      console.log("ACV: Successfully saved:", {
-        title: videoTitle,
-        url: videoUrl,
-      });
+      // console.log("ACV: Successfully saved:", {
+      //   title: videoTitle,
+      //   url: videoUrl,
+      // });
     } catch (error) {
       console.error("ACV: Save failed:", error);
 
@@ -381,7 +381,7 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
 
   menu.prepend(wrapper);
 
-  console.log("ACV: Button injected for:", videoUrl);
+  // console.log("ACV: Button injected for:", videoUrl);
 }
 
 // Handle every three-dot menu click independently.
