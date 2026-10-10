@@ -1,3 +1,4 @@
+
 console.log("ACV: YouTube script loaded");
 
 let acvMenuSession = 0;
@@ -27,29 +28,35 @@ function acvShowToast(message, type = "success") {
   setTimeout(() => toast.remove(), 3500);
 }
 
+// Close the complete YouTube menu, not just our injected button.
 function acvCloseMenu(menuButton, wrapper) {
-  wrapper.remove();
+  wrapper?.remove();
 
-  setTimeout(() => {
-    if (menuButton?.isConnected) {
-      menuButton.click();
-    } else {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Escape",
-          code: "Escape",
-          bubbles: true,
-          cancelable: true,
-        })
-      );
-    }
-  }, 0);
+  // On mobile YouTube, the scrim/backdrop closes the bottom sheet.
+  const scrim = document.querySelector(
+    "ytw-scrim.ytWebScrimHostBottomSheet"
+  );
+
+  if (scrim) {
+    scrim.click();
+    return;
+  }
+
+  // Desktop fallback: ask YouTube to dismiss the menu.
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Escape",
+      code: "Escape",
+      bubbles: true,
+      cancelable: true,
+    })
+  );
 }
 
-// Get the URL from the exact card whose three-dot button was clicked.
+// Get the URL from the exact video card whose menu was clicked.
 function acvGetVideoDetails(menuButton) {
   const card = menuButton.closest(
-    "yt-lockup-view-model, ytm-rich-item-renderer, ytd-rich-item-renderer, ytd-video-renderer"
+    "yt-lockup-view-model, ytm-rich-item-renderer, ytd-rich-item-renderer, ytd-video-renderer, ytm-video-with-context-renderer"
   );
 
   if (!card) return null;
@@ -58,9 +65,8 @@ function acvGetVideoDetails(menuButton) {
     'a[href*="/watch?v="], a[href*="/shorts/"]'
   );
 
-  // Prefer the link closest to the card's title.
   let videoLink = card.querySelector(
-    'h3 a[href*="/watch?v="], h3 a[href*="/shorts/"], a#video-title[href*="/watch?v="], a#video-title[href*="/shorts/"]'
+    'h3 a[href*="/watch?v="], h3 a[href*="/shorts/"], a#video-title[href*="/watch?v="], a#video-title[href*="/shorts/"], a.media-item-thumbnail-container[href*="/watch?v="], a.media-item-thumbnail-container[href*="/shorts/"]'
   );
 
   if (!videoLink) {
@@ -75,7 +81,7 @@ function acvGetVideoDetails(menuButton) {
   ).href;
 
   const titleElement = card.querySelector(
-    "h3 a, a#video-title"
+    "h3 a, a#video-title, .media-item-headline"
   );
 
   const videoTitle =
@@ -86,18 +92,18 @@ function acvGetVideoDetails(menuButton) {
   return { videoUrl, videoTitle };
 }
 
+// Find either the mobile bottom sheet or the desktop menu.
 function acvFindMenu() {
-  const selectors = [
-    "ytd-menu-popup-renderer",
-    "ytm-menu-popup-renderer",
-    "tp-yt-iron-dropdown",
-    "tp-yt-paper-listbox",
+  const mobileSelectors = [
+    "yt-list-view-model[role='menu']",
+    ".ytSpecBottomSheetLayoutContentWrapper",
+    ".ytSpecBottomSheetLayoutBottomSheetContent",
+    ".ytSpecBottomSheetLayoutContainer",
   ];
 
-  for (const selector of selectors) {
+  for (const selector of mobileSelectors) {
     const elements = [...document.querySelectorAll(selector)];
 
-    // Use the currently visible menu, not an old hidden menu.
     const visibleMenu = elements.find((element) => {
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);
@@ -110,16 +116,47 @@ function acvFindMenu() {
       );
     });
 
-    if (visibleMenu) return visibleMenu;
+    if (visibleMenu) {
+      console.log("ACV: Mobile menu found:", selector);
+      return visibleMenu;
+    }
   }
 
+  const desktopSelectors = [
+    "ytd-menu-popup-renderer",
+    "ytm-menu-popup-renderer",
+    "tp-yt-iron-dropdown",
+    "tp-yt-paper-listbox",
+  ];
+
+  for (const selector of desktopSelectors) {
+    const elements = [...document.querySelectorAll(selector)];
+
+    const visibleMenu = elements.find((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== "none" &&
+        style.visibility !== "hidden"
+      );
+    });
+
+    if (visibleMenu) {
+      console.log("ACV: Desktop menu found:", selector);
+      return visibleMenu;
+    }
+  }
+
+  console.warn("ACV: YouTube menu wasn't found.");
   return null;
 }
 
 function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
   const { videoUrl, videoTitle } = videoDetails;
 
-  // Remove any previous ACV UI before injecting the current one.
   document.querySelectorAll(".acv-wrapper").forEach((element) => {
     element.remove();
   });
@@ -136,6 +173,7 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
     fontFamily: "system-ui, sans-serif",
     boxSizing: "border-box",
     minWidth: "220px",
+    color: "inherit",
   });
 
   const row = document.createElement("div");
@@ -171,7 +209,7 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
     borderRadius: "8px",
     background: "rgba(255,255,255,.08)",
     border: "1px solid rgba(255,255,255,.15)",
-    color: "#F1F1F1",
+    color: "inherit",
     fontSize: "12px",
     cursor: "pointer",
   });
@@ -222,13 +260,13 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
     event.stopPropagation();
 
     const hidden = noteInput.style.display === "none";
-
     noteInput.style.display = hidden ? "block" : "none";
     noteToggle.textContent = hidden ? "– Note" : "+ Note";
 
     if (hidden) noteInput.focus();
   });
 
+  // Keep clicks inside our UI from triggering YouTube menu actions.
   wrapper.addEventListener("click", (event) => {
     event.stopPropagation();
   });
@@ -247,7 +285,7 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
   async function saveLink() {
     if (saving) return;
 
-    // Never save if this UI belongs to an older menu session.
+    // Prevent an old menu's UI from saving the wrong video.
     if (
       !wrapper.isConnected ||
       wrapper.dataset.session !== String(session) ||
@@ -265,7 +303,6 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
     try {
       console.log("ACV: Saving URL:", videoUrl);
 
-      // Send request through the extension background worker.
       const data = await chrome.runtime.sendMessage({
         type: "ACV_SAVE_LINK",
         url: videoUrl,
@@ -282,7 +319,6 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
           data.message ||
             "Couldn't fetch video details. Add a note to save it."
         );
-
         saveButton.textContent = "Save with note";
         return;
       }
@@ -295,12 +331,15 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
             data.error || "This video is already in your Content Vault."
           );
         } else {
-          setStatus(data.error || "Couldn't save this video.");
+          setStatus(
+            data.error || "Couldn't save this video. Please try again."
+          );
         }
 
         return;
       }
 
+      // API confirmed success: close the entire menu and show confirmation.
       acvCloseMenu(menuButton, wrapper);
       acvShowToast("Saved to AI Content Vault!");
 
@@ -318,7 +357,10 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
       saving = false;
       saveButton.disabled = false;
 
-      if (saveButton.isConnected && saveButton.textContent === "Saving...") {
+      if (
+        saveButton.isConnected &&
+        saveButton.textContent === "Saving..."
+      ) {
         saveButton.textContent = "🔖 Save to Vault";
       }
     }
@@ -342,12 +384,11 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
   console.log("ACV: Button injected for:", videoUrl);
 }
 
-// Capture each three-dot click separately.
+// Handle every three-dot menu click independently.
 document.addEventListener(
   "click",
   (event) => {
     const target = event.target;
-
     if (!(target instanceof Element)) return;
 
     const menuButton = target.closest(
@@ -366,22 +407,12 @@ document.addEventListener(
     const session = ++acvMenuSession;
 
     setTimeout(() => {
-      // Ignore delayed callbacks from older clicks.
       if (session !== acvMenuSession) return;
 
       const menu = acvFindMenu();
+      if (!menu) return;
 
-      if (!menu) {
-        console.warn("ACV: YouTube menu wasn't found.");
-        return;
-      }
-
-      acvInjectSaveUI(
-        menu,
-        menuButton,
-        videoDetails,
-        session
-      );
+      acvInjectSaveUI(menu, menuButton, videoDetails, session);
     }, 300);
   },
   true
