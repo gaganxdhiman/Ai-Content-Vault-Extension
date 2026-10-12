@@ -1,13 +1,25 @@
 
-// console.log("ACV: YouTube script loaded");
+/* =========================================================
+   AI CONTENT VAULT — YOUTUBE WATCH-PAGE SAVE BUTTON
+   - Save button beside Like/Dislike
+   - Compact optional note toggle (+ / −)
+   - Success and error messages
+   - Duplicate-link handling
+   - YouTube SPA navigation support
+========================================================= */
 
-let acvMenuSession = 0;
+let acvWatchButtonUrl = "";
+let acvWatchObserverTimer = null;
+
+// ---------------------------------------------------------
+// Toast notifications
+// ---------------------------------------------------------
 
 function acvShowToast(message, type = "success") {
-  document.querySelector("#acv-toast")?.remove();
+  document.querySelector("#acv-watch-toast")?.remove();
 
   const toast = document.createElement("div");
-  toast.id = "acv-toast";
+  toast.id = "acv-watch-toast";
   toast.textContent = message;
 
   Object.assign(toast.style, {
@@ -15,12 +27,12 @@ function acvShowToast(message, type = "success") {
     right: "20px",
     bottom: "20px",
     zIndex: "2147483647",
-    maxWidth: "320px",
+    maxWidth: "min(360px, calc(100vw - 40px))",
     padding: "12px 16px",
     borderRadius: "10px",
     background: type === "success" ? "#166534" : "#991b1b",
     color: "#fff",
-    font: "500 13px/1.4 system-ui, sans-serif",
+    font: "500 13px/1.45 system-ui, sans-serif",
     boxShadow: "0 8px 24px rgba(0,0,0,.35)",
   });
 
@@ -28,246 +40,343 @@ function acvShowToast(message, type = "success") {
   setTimeout(() => toast.remove(), 3500);
 }
 
-// Close the complete YouTube menu, not just our injected button.
-function acvCloseMenu(menuButton, wrapper) {
-  wrapper?.remove();
+// ---------------------------------------------------------
+// Current video details
+// ---------------------------------------------------------
 
-  // On mobile YouTube, the scrim/backdrop closes the bottom sheet.
-  const scrim = document.querySelector(
-    "ytw-scrim.ytWebScrimHostBottomSheet"
+function acvGetCurrentVideoDetails() {
+  const url = new URL(location.href);
+
+  const isWatchPage =
+    url.pathname === "/watch" && url.searchParams.has("v");
+
+  const isShortsPage = url.pathname.startsWith("/shorts/");
+
+  if (!isWatchPage && !isShortsPage) return null;
+
+  const videoUrl = isWatchPage
+    ? `${location.origin}/watch?v=${encodeURIComponent(
+        url.searchParams.get("v")
+      )}`
+    : `${location.origin}${url.pathname}`;
+
+  const titleElement = document.querySelector(
+    "h1 yt-formatted-string, h1, .slim-video-metadata-title, .watch-title"
   );
 
-  if (scrim) {
-    scrim.click();
-    return;
-  }
-
-  // Desktop fallback: ask YouTube to dismiss the menu.
-  document.dispatchEvent(
-    new KeyboardEvent("keydown", {
-      key: "Escape",
-      code: "Escape",
-      bubbles: true,
-      cancelable: true,
-    })
-  );
+  return {
+    videoUrl,
+    videoTitle:
+      titleElement?.textContent?.trim() || document.title || "",
+  };
 }
 
-// Get the URL from the exact video card whose menu was clicked.
-function acvGetVideoDetails(menuButton) {
-  const card = menuButton.closest(
-    "yt-lockup-view-model, ytm-rich-item-renderer, ytd-rich-item-renderer, ytd-video-renderer, ytm-video-with-context-renderer"
-  );
+// ---------------------------------------------------------
+// Find YouTube's action row
+// ---------------------------------------------------------
 
-  if (!card) return null;
+function acvFindWatchActionRow() {
+  const selectors = [
+    // Desktop YouTube
+    "ytd-watch-metadata #top-level-buttons-computed",
+    "ytd-watch-metadata #actions ytd-menu-renderer #top-level-buttons-computed",
+    "ytd-watch-metadata #actions-inner",
+    "ytd-watch-metadata #actions",
 
-  const links = card.querySelectorAll(
-    'a[href*="/watch?v="], a[href*="/shorts/"]'
-  );
-
-  let videoLink = card.querySelector(
-    'h3 a[href*="/watch?v="], h3 a[href*="/shorts/"], a#video-title[href*="/watch?v="], a#video-title[href*="/shorts/"], a.media-item-thumbnail-container[href*="/watch?v="], a.media-item-thumbnail-container[href*="/shorts/"]'
-  );
-
-  if (!videoLink) {
-    videoLink = links[0];
-  }
-
-  if (!videoLink) return null;
-
-  const videoUrl = new URL(
-    videoLink.getAttribute("href"),
-    location.origin
-  ).href;
-
-  const titleElement = card.querySelector(
-    "h3 a, a#video-title, .media-item-headline"
-  );
-
-  const videoTitle =
-    titleElement?.getAttribute("title") ||
-    titleElement?.textContent?.trim() ||
-    "";
-
-  return { videoUrl, videoTitle };
-}
-
-// Find either the mobile bottom sheet or the desktop menu.
-function acvFindMenu() {
-  const mobileSelectors = [
-    "yt-list-view-model[role='menu']",
-    ".ytSpecBottomSheetLayoutContentWrapper",
-    ".ytSpecBottomSheetLayoutBottomSheetContent",
-    ".ytSpecBottomSheetLayoutContainer",
+    // Mobile YouTube
+    ".slim-video-action-bar-actions",
+    "ytm-slim-video-action-bar-renderer .slim-video-action-bar-actions",
+    "ytm-slim-video-action-bar-renderer #actions",
+    "ytm-slim-video-action-bar-renderer",
   ];
 
-  for (const selector of mobileSelectors) {
-    const elements = [...document.querySelectorAll(selector)];
+  for (const selector of selectors) {
+    const row = [...document.querySelectorAll(selector)].find(
+      (element) => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
 
-    const visibleMenu = elements.find((element) => {
-      const rect = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.display !== "none" &&
+          style.visibility !== "hidden"
+        );
+      }
+    );
 
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        style.display !== "none" &&
-        style.visibility !== "hidden"
-      );
-    });
-
-    if (visibleMenu) {
-      // console.log("ACV: Mobile menu found:", selector);
-      return visibleMenu;
-    }
+    if (row) return row;
   }
 
-  const desktopSelectors = [
-    "ytd-menu-popup-renderer",
-    "ytm-menu-popup-renderer",
-    "tp-yt-iron-dropdown",
-    "tp-yt-paper-listbox",
-  ];
-
-  for (const selector of desktopSelectors) {
-    const elements = [...document.querySelectorAll(selector)];
-
-    const visibleMenu = elements.find((element) => {
-      const rect = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
-
-      return (
-        rect.width > 0 &&
-        rect.height > 0 &&
-        style.display !== "none" &&
-        style.visibility !== "hidden"
-      );
-    });
-
-    if (visibleMenu) {
-      // console.log("ACV: Desktop menu found:", selector);
-      return visibleMenu;
-    }
-  }
-
-  console.warn("ACV: YouTube menu wasn't found.");
   return null;
 }
 
-function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
-  const { videoUrl, videoTitle } = videoDetails;
+// ---------------------------------------------------------
+// Create the Save button, note toggle, note input and status
+// ---------------------------------------------------------
 
-  document.querySelectorAll(".acv-wrapper").forEach((element) => {
-    element.remove();
-  });
-
+function acvCreateWatchSaveButton(details) {
   const wrapper = document.createElement("div");
-  wrapper.className = "acv-wrapper";
-  wrapper.dataset.session = String(session);
-  wrapper.dataset.url = videoUrl;
+  wrapper.className = "acv-watch-save-wrapper";
+  wrapper.dataset.url = details.videoUrl;
 
   Object.assign(wrapper.style, {
-    padding: "10px 12px",
-    margin: "4px 0 8px",
-    borderBottom: "1px solid rgba(255,255,255,.1)",
-    fontFamily: "system-ui, sans-serif",
-    boxSizing: "border-box",
-    minWidth: "220px",
-    color: "inherit",
-  });
-
-  const row = document.createElement("div");
-
-  Object.assign(row.style, {
-    display: "flex",
-    gap: "8px",
+    display: "inline-flex",
+    flex: "0 0 auto",
     alignItems: "center",
+    gap: "6px",
+    position: "relative",
+    margin: "0 4px",
+    fontFamily: "Roboto, Arial, sans-serif",
+    verticalAlign: "middle",
   });
 
-  const saveButton = document.createElement("button");
-  saveButton.type = "button";
-  saveButton.textContent = "🔖 Save to Vault";
+  // Save button
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "acv-watch-save-button";
+  button.textContent = "🔖 Save to Vault";
+  button.setAttribute(
+    "aria-label",
+    "Save video to AI Content Vault"
+  );
 
-  Object.assign(saveButton.style, {
-    flex: "1",
-    padding: "9px 12px",
-    borderRadius: "8px",
-    background: "#C2410C",
+  Object.assign(button.style, {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "6px",
+    minHeight: "36px",
+    padding: "0 12px",
     border: "none",
+    borderRadius: "18px",
+    background: "#C2410C",
     color: "#fff",
     fontSize: "13px",
     fontWeight: "600",
+    whiteSpace: "nowrap",
     cursor: "pointer",
   });
 
+  // Compact optional-note toggle
   const noteToggle = document.createElement("button");
   noteToggle.type = "button";
-  noteToggle.textContent = "+ Note";
+  noteToggle.className = "acv-watch-note-toggle";
+  noteToggle.textContent = "+";
+  noteToggle.title = "Add an optional note";
+  noteToggle.setAttribute("aria-label", "Add an optional note");
 
   Object.assign(noteToggle.style, {
-    padding: "9px 10px",
-    borderRadius: "8px",
-    background: "rgba(255,255,255,.08)",
-    border: "1px solid rgba(255,255,255,.15)",
-    color: "inherit",
-    fontSize: "12px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "28px",
+    height: "28px",
+    padding: "0",
+    border: "1px solid #777",
+    borderRadius: "50%",
+    background: "#292929",
+    color: "#fff",
+    fontSize: "18px",
+    lineHeight: "1",
     cursor: "pointer",
+    flex: "0 0 auto",
   });
 
+  // Note input: hidden until the + icon is clicked.
   const noteInput = document.createElement("input");
   noteInput.type = "text";
-  noteInput.placeholder = "What is this video about?";
+  noteInput.className = "acv-watch-note-input";
+  noteInput.placeholder = "Add a note (optional)";
+  noteInput.setAttribute("aria-label", "Optional note");
 
   Object.assign(noteInput.style, {
     display: "none",
-    width: "100%",
-    marginTop: "8px",
-    padding: "8px 10px",
-    background: "#0F0F0F",
-    border: "1px solid rgba(255,255,255,.2)",
-    borderRadius: "6px",
+    width: "180px",
+    maxWidth: "35vw",
+    minWidth: "100px",
+    height: "34px",
+    padding: "0 9px",
+    border: "1px solid #777",
+    borderRadius: "8px",
+    background: "#212121",
     color: "#fff",
     fontSize: "12px",
     boxSizing: "border-box",
   });
 
+  // Status message displayed below the controls.
   const status = document.createElement("div");
+  status.className = "acv-watch-save-status";
 
   Object.assign(status.style, {
     display: "none",
-    marginTop: "8px",
+    position: "absolute",
+    top: "calc(100% + 6px)",
+    right: "0",
+    zIndex: "2147483647",
+    width: "240px",
+    padding: "8px 10px",
+    borderRadius: "8px",
+    background: "#202020",
+    color: "#fff",
     fontSize: "12px",
     lineHeight: "1.4",
-    color: "#FCA5A5",
+    whiteSpace: "normal",
     overflowWrap: "anywhere",
+    boxShadow: "0 4px 16px rgba(0,0,0,.35)",
   });
 
   function setStatus(message, isError = true) {
     status.textContent = message;
     status.style.display = "block";
-    status.style.color = isError ? "#FCA5A5" : "#86EFAC";
+    status.style.border = isError
+      ? "1px solid #ef4444"
+      : "1px solid #22c55e";
+    status.style.color = isError ? "#fecaca" : "#bbf7d0";
   }
 
-  function revealNote(message) {
-    noteInput.style.display = "block";
-    noteToggle.textContent = "– Note";
-    setStatus(message);
-    noteInput.focus();
-  }
-
+  // Toggle the optional note input.
   noteToggle.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
 
-    const hidden = noteInput.style.display === "none";
-    noteInput.style.display = hidden ? "block" : "none";
-    noteToggle.textContent = hidden ? "– Note" : "+ Note";
+    const opening = noteInput.style.display === "none";
 
-    if (hidden) noteInput.focus();
+    noteInput.style.display = opening ? "inline-block" : "none";
+    noteToggle.textContent = opening ? "−" : "+";
+    noteToggle.title = opening ? "Hide note" : "Add an optional note";
+    noteToggle.setAttribute(
+      "aria-label",
+      opening ? "Hide optional note" : "Add an optional note"
+    );
+
+    if (opening) noteInput.focus();
   });
 
-  // Keep clicks inside our UI from triggering YouTube menu actions.
-  wrapper.addEventListener("click", (event) => {
+  let saving = false;
+  let saved = false;
+
+  // -------------------------------------------------------
+  // Save video through the existing background worker
+  // -------------------------------------------------------
+
+  async function saveCurrentVideo() {
+    if (saving || saved) return;
+
+    const current = acvGetCurrentVideoDetails();
+
+    if (
+      !current ||
+      current.videoUrl !== wrapper.dataset.url
+    ) {
+      const message = "The video changed. Please try again.";
+      setStatus(message);
+      acvShowToast(message, "error");
+      return;
+    }
+
+    saving = true;
+    button.disabled = true;
+    button.textContent = "Saving...";
+    status.style.display = "none";
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "ACV_SAVE_LINK",
+        url: current.videoUrl,
+        note: noteInput.value.trim(),
+      });
+
+      if (!response) {
+        const message =
+          "No response from the extension. Reload it and try again.";
+
+        setStatus(message);
+        acvShowToast(message, "error");
+        return;
+      }
+
+      // Metadata could not be fetched; ask for a note.
+      if (response.requiresNote) {
+        noteInput.style.display = "inline-block";
+        noteToggle.textContent = "−";
+        noteToggle.title = "Hide note";
+        noteToggle.setAttribute("aria-label", "Hide optional note");
+
+        button.textContent = "Save with note";
+
+        const message =
+          response.message ||
+          "Couldn't fetch video details. Add a note, then save again.";
+
+        setStatus(message);
+        acvShowToast(message, "error");
+        noteInput.focus();
+        return;
+      }
+
+      // Handle errors, including duplicate links.
+      if (!response.success) {
+        let message;
+
+        if (response.status === 401) {
+          message =
+            "Please sign in to AI Content Vault from the extension.";
+        } else if (response.status === 409) {
+          message =
+            response.error ||
+            "Link already exists in your Content Vault.";
+        } else {
+          message =
+            response.error ||
+            "Couldn't save this video. Please try again.";
+        }
+
+        setStatus(message);
+        acvShowToast(message, "error");
+        return;
+      }
+
+      // Save succeeded.
+      saved = true;
+      button.textContent = "✓ Saved";
+      button.disabled = true;
+      button.style.background = "#166534";
+      noteToggle.disabled = true;
+      noteInput.disabled = true;
+
+      setStatus("Link saved to AI Content Vault!", false);
+      acvShowToast("Link saved to AI Content Vault!", "success");
+    } catch (error) {
+      console.error("ACV: Watch-page save failed:", error);
+
+      const message =
+        "Couldn't contact the extension. Reload it and try again.";
+
+      setStatus(message);
+      acvShowToast(message, "error");
+    } finally {
+      saving = false;
+
+      // Don't re-enable the button after a successful save.
+      if (!saved) {
+        button.disabled = false;
+
+        if (button.textContent === "Saving...") {
+          button.textContent = "🔖 Save to Vault";
+        }
+      }
+    }
+  }
+
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    saveCurrentVideo();
+  });
+
+  noteInput.addEventListener("click", (event) => {
     event.stopPropagation();
   });
 
@@ -276,144 +385,148 @@ function acvInjectSaveUI(menu, menuButton, videoDetails, session) {
 
     if (event.key === "Enter") {
       event.preventDefault();
-      saveButton.click();
+      saveCurrentVideo();
     }
   });
 
-  let saving = false;
+  wrapper.append(button, noteToggle, noteInput, status);
 
-  async function saveLink() {
-    if (saving) return;
-
-    // Prevent an old menu's UI from saving the wrong video.
-    if (
-      !wrapper.isConnected ||
-      wrapper.dataset.session !== String(session) ||
-      wrapper.dataset.url !== videoUrl
-    ) {
-      setStatus("Menu changed. Reopen this video's three-dot menu.");
-      return;
-    }
-
-    saving = true;
-    saveButton.disabled = true;
-    saveButton.textContent = "Saving...";
-    status.style.display = "none";
-
-    try {
-      // console.log("ACV: Saving URL:", videoUrl);
-
-      const data = await chrome.runtime.sendMessage({
-        type: "ACV_SAVE_LINK",
-        url: videoUrl,
-        note: noteInput.value.trim(),
-      });
-
-      if (!data) {
-        setStatus("No response from the extension. Reload it and try again.");
-        return;
-      }
-
-      if (data.requiresNote) {
-        revealNote(
-          data.message ||
-            "Couldn't fetch video details. Add a note to save it."
-        );
-        saveButton.textContent = "Save with note";
-        return;
-      }
-
-      if (!data.success) {
-        if (data.status === 401) {
-          setStatus("Please sign in to AI Content Vault again.");
-        } else if (data.status === 409) {
-          setStatus(
-            data.error || "This video is already in your Content Vault."
-          );
-        } else {
-          setStatus(
-            data.error || "Couldn't save this video. Please try again."
-          );
-        }
-
-        return;
-      }
-
-      // API confirmed success: close the entire menu and show confirmation.
-      acvCloseMenu(menuButton, wrapper);
-      acvShowToast("Saved to AI Content Vault!");
-
-      // console.log("ACV: Successfully saved:", {
-      //   title: videoTitle,
-      //   url: videoUrl,
-      // });
-    } catch (error) {
-      console.error("ACV: Save failed:", error);
-
-      setStatus(
-        "Couldn't contact the extension background worker. Reload the extension and try again."
-      );
-    } finally {
-      saving = false;
-      saveButton.disabled = false;
-
-      if (
-        saveButton.isConnected &&
-        saveButton.textContent === "Saving..."
-      ) {
-        saveButton.textContent = "🔖 Save to Vault";
-      }
-    }
-  }
-
-  saveButton.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    saveLink();
-  });
-
-  row.appendChild(saveButton);
-  row.appendChild(noteToggle);
-
-  wrapper.appendChild(row);
-  wrapper.appendChild(noteInput);
-  wrapper.appendChild(status);
-
-  menu.prepend(wrapper);
-
-  // console.log("ACV: Button injected for:", videoUrl);
+  return wrapper;
 }
 
-// Handle every three-dot menu click independently.
-document.addEventListener(
-  "click",
-  (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
+// ---------------------------------------------------------
+// Inject beside Like/Dislike
+// ---------------------------------------------------------
 
-    const menuButton = target.closest(
-      'button[aria-label="More actions"]'
-    );
+function acvInjectWatchPageButton() {
+  const details = acvGetCurrentVideoDetails();
 
-    if (!menuButton) return;
+  if (!details) {
+    document
+      .querySelectorAll(".acv-watch-save-wrapper")
+      .forEach((element) => element.remove());
 
-    const videoDetails = acvGetVideoDetails(menuButton);
+    acvWatchButtonUrl = "";
+    return;
+  }
 
-    if (!videoDetails) {
-      console.warn("ACV: Couldn't identify this video's URL.");
-      return;
+  const row = acvFindWatchActionRow();
+
+  // YouTube may not have rendered the action row yet.
+  if (!row) return;
+
+  const existing = row.querySelector(
+    ".acv-watch-save-wrapper"
+  );
+
+  if (
+    existing &&
+    existing.dataset.url === details.videoUrl
+  ) {
+    return;
+  }
+
+  // Remove buttons belonging to a previous video.
+  document
+    .querySelectorAll(".acv-watch-save-wrapper")
+    .forEach((element) => element.remove());
+
+  const wrapper = acvCreateWatchSaveButton(details);
+
+  // Locate Like and its combined Like/Dislike group.
+  const likeButton = [
+    ...row.querySelectorAll(
+      "button, yt-button-shape, ytd-toggle-button-renderer, a"
+    ),
+  ].find((element) =>
+    /like/i.test(
+      `${element.getAttribute("aria-label") || ""} ${
+        element.getAttribute("title") || ""
+      } ${element.textContent || ""}`
+    )
+  );
+
+  if (likeButton) {
+    const likeGroup =
+      likeButton.closest(
+        "ytd-segmented-like-dislike-button-renderer"
+      ) ||
+      likeButton.closest(
+        "segmented-like-dislike-button-view-model"
+      ) ||
+      likeButton.parentElement?.parentElement;
+
+    if (likeGroup && row.contains(likeGroup)) {
+      likeGroup.insertAdjacentElement("afterend", wrapper);
+    } else {
+      likeButton.insertAdjacentElement("afterend", wrapper);
     }
+  } else {
+    row.appendChild(wrapper);
+  }
 
-    const session = ++acvMenuSession;
+  acvWatchButtonUrl = details.videoUrl;
 
-    setTimeout(() => {
-      if (session !== acvMenuSession) return;
+  console.log(
+    "ACV: Watch-page button injected for:",
+    details.videoUrl
+  );
+}
 
-      const menu = acvFindMenu();
-      if (!menu) return;
+// ---------------------------------------------------------
+// YouTube single-page navigation support
+// ---------------------------------------------------------
 
-      acvInjectSaveUI(menu, menuButton, videoDetails, session);
-    }, 300);
-  },
-  true
+function acvScheduleWatchButtonInjection() {
+  if (acvWatchObserverTimer) {
+    clearTimeout(acvWatchObserverTimer);
+  }
+
+  acvWatchObserverTimer = setTimeout(
+    acvInjectWatchPageButton,
+    350
+  );
+}
+
+document.addEventListener(
+  "yt-navigate-finish",
+  acvScheduleWatchButtonInjection
 );
+
+window.addEventListener(
+  "popstate",
+  acvScheduleWatchButtonInjection
+);
+
+// Detect when YouTube replaces the video or action row.
+const acvWatchPageObserver = new MutationObserver(() => {
+  const current = acvGetCurrentVideoDetails();
+
+  if (!current) {
+    if (acvWatchButtonUrl) {
+      acvScheduleWatchButtonInjection();
+    }
+    return;
+  }
+
+  const buttonExists = document.querySelector(
+    ".acv-watch-save-wrapper"
+  );
+
+  if (
+    current.videoUrl !== acvWatchButtonUrl ||
+    !buttonExists
+  ) {
+    acvScheduleWatchButtonInjection();
+  }
+});
+
+acvWatchPageObserver.observe(document.documentElement, {
+  childList: true,
+  subtree: true,
+});
+
+// Initial injection and retries for slower page rendering.
+acvScheduleWatchButtonInjection();
+setTimeout(acvScheduleWatchButtonInjection, 1000);
+setTimeout(acvScheduleWatchButtonInjection, 2500);
