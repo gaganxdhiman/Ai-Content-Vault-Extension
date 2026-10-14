@@ -1,12 +1,22 @@
 (() => {
   "use strict";
 
-  // Home-feed only: keep ACV controls in a small row at the bottom of each post.
+  // Home feed and Reels viewer: keep ACV controls compact and below each action group.
   const CONTROL_CLASS = "acv-instagram-save";
   const POST_PATH = /^\/(?:p|reel|tv)\/[^/]+/;
 
   function isHomeFeed() {
     return location.pathname === "/";
+  }
+
+  function isReelsViewer() {
+    return /^\/(?:reels|reel)(?:\/|$)/.test(location.pathname);
+  }
+
+  function getCurrentReelUrl() {
+    const match = location.pathname.match(/^\/(?:reels|reel)\/([^/]+)\/?$/);
+    if (!match) return null;
+    return location.origin + "/reel/" + encodeURIComponent(match[1]) + "/";
   }
 
   function canonicalPostUrl(rawHref) {
@@ -246,7 +256,12 @@
   }
 
   function findActionRow(article) {
-    const controls = [...article.querySelectorAll('button, [role="button"]')];
+    const controls = [...article.querySelectorAll('button, [role="button"]')].filter((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 &&
+        style.display !== "none" && style.visibility !== "hidden";
+    });
     const getLabel = (element) => [
       element.getAttribute("aria-label"),
       element.getAttribute("title"),
@@ -284,15 +299,14 @@
 
     return fallback || likeControl.parentElement;
   }
-  function addButton(article) {
-    const postUrl = getPostUrl(article);
+  function addButton(container, postUrl = getPostUrl(container)) {
     if (!postUrl) return;
 
-    const existing = article.querySelector("." + CONTROL_CLASS);
+    const existing = container.querySelector("." + CONTROL_CLASS);
     if (existing?.dataset.url === postUrl) return;
     existing?.remove();
 
-    const actionRow = findActionRow(article);
+    const actionRow = findActionRow(container);
     if (!actionRow) return;
 
     // Put a separate, compact row after every action icon and before the caption.
@@ -300,13 +314,74 @@
   }
 
   function scanFeed() {
-    if (!isHomeFeed()) {
+    if (isHomeFeed()) {
+      document.querySelectorAll("article").forEach((article) => addButton(article));
+      return;
+    }
+
+    if (!isReelsViewer()) {
       document.querySelectorAll("." + CONTROL_CLASS).forEach((node) => node.remove());
       return;
     }
-    document.querySelectorAll("article").forEach(addButton);
-  }
 
+    const main = document.querySelector("main") || document.body;
+    const currentReelUrl = getCurrentReelUrl();
+
+    // On /reels/<id>, the route is the source of truth. Instagram often keeps
+    // one viewer mounted while replacing its content as the user scrolls.
+    if (currentReelUrl) {
+      main.querySelectorAll("." + CONTROL_CLASS).forEach((node) => {
+        if (node.dataset.url !== currentReelUrl) node.remove();
+      });
+
+      const matchingArticle = [...main.querySelectorAll("article")].find((article) =>
+        [...article.querySelectorAll('a[href]')]
+          .some((link) => canonicalPostUrl(link.href) === currentReelUrl)
+      );
+
+      addButton(matchingArticle || main, currentReelUrl);
+      return;
+    }
+
+    // At /reels/ without an ID in the address bar, attach to the most visible
+    // reel card and refresh that choice as the nested scroller moves.
+    const candidates = [...main.querySelectorAll("article")]
+      .map((article) => {
+        const postUrl = getPostUrl(article);
+        const rect = article.getBoundingClientRect();
+        const visibleHeight = Math.max(
+          0,
+          Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0)
+        );
+        const visibleWidth = Math.max(
+          0,
+          Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0)
+        );
+        return { article, postUrl, visibleArea: visibleHeight * visibleWidth };
+      })
+      .filter((item) => item.postUrl && /\/reel\//.test(item.postUrl))
+      .sort((a, b) => b.visibleArea - a.visibleArea);
+
+    if (candidates.length) {
+      const active = candidates[0];
+      main.querySelectorAll("." + CONTROL_CLASS).forEach((node) => {
+        if (node.dataset.url !== active.postUrl) node.remove();
+      });
+      addButton(active.article, active.postUrl);
+      return;
+    }
+
+    // Fallback for viewer layouts without article elements.
+    const postUrl = [...main.querySelectorAll('a[href]')]
+      .map((link) => canonicalPostUrl(link.href))
+      .find((url) => url && /\/reel\//.test(url));
+    if (!postUrl) return;
+
+    main.querySelectorAll("." + CONTROL_CLASS).forEach((node) => {
+      if (node.dataset.url !== postUrl) node.remove();
+    });
+    addButton(main, postUrl);
+  }
   let scanTimer;
   function scheduleScan() {
     clearTimeout(scanTimer);
@@ -316,8 +391,13 @@
   const observer = new MutationObserver(scheduleScan);
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener("popstate", scheduleScan);
+  document.addEventListener("scroll", scheduleScan, { capture: true, passive: true });
+  document.addEventListener("wheel", scheduleScan, { capture: true, passive: true });
   scanFeed();
 })();
+
+
+
 
 
 
