@@ -4,6 +4,7 @@
   // Home feed and Reels viewer: keep ACV controls compact and below each action group.
   const CONTROL_CLASS = "acv-instagram-save";
   const POST_PATH = /^\/(?:p|reel|tv)\/[^/]+/;
+  const REEL_BOOKMARK_ICON = '<svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4.75A1.75 1.75 0 0 1 7.75 3h8.5A1.75 1.75 0 0 1 18 4.75V21l-6-3.8L6 21V4.75Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>';
 
   function isHomeFeed() {
     return location.pathname === "/";
@@ -40,7 +41,7 @@
     return null;
   }
 
-  function createControl(postUrl) {
+  function createControl(postUrl, resolveCurrentUrl = null) {
     const wrapper = document.createElement("div");
     wrapper.className = CONTROL_CLASS;
     wrapper.dataset.url = postUrl;
@@ -114,7 +115,7 @@
 
     const note = document.createElement("input");
     note.type = "text";
-    note.placeholder = "Add a note (optional)";
+    note.placeholder = "Add a note (optional) and click save.";
     note.setAttribute("aria-label", "Optional note");
     Object.assign(note.style, {
       display: "block",
@@ -150,11 +151,18 @@
       boxSizing: "border-box",
     });
 
-    function showStatus(message, isError = true) {
+    let statusTimer;
+    function showStatus(message, isError = true, duration = 0) {
+      clearTimeout(statusTimer);
       panel.style.display = "none";
       status.textContent = message;
       status.style.display = "block";
       status.style.color = isError ? "#b91c1c" : "#15803d";
+      if (duration > 0) {
+        statusTimer = setTimeout(() => {
+          status.style.display = "none";
+        }, duration);
+      }
     }
 
     toggle.addEventListener("click", (event) => {
@@ -174,12 +182,15 @@
 
     let saving = false;
     let saved = false;
+    const savedIcon = '<svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const isFloatingReel = () => wrapper.dataset.reelFloating === "true";
 
     async function savePost() {
       if (saving || saved) return;
       saving = true;
       save.disabled = true;
-      save.textContent = "Saving…";
+      if (isFloatingReel()) save.title = "Saving…";
+      else save.textContent = "Saving…";
       status.style.display = "none";
 
       try {
@@ -199,7 +210,8 @@
           toggle.textContent = "−";
           toggle.title = "Hide note";
           toggle.setAttribute("aria-label", "Hide optional note");
-          save.textContent = "Save with note";
+          if (isFloatingReel()) save.title = "Save with note";
+          else save.textContent = "Save with note";
           showStatus(
             response.message ||
             "Instagram details could not be fetched. Add a note, then save again."
@@ -220,11 +232,15 @@
         }
 
         saved = true;
-        save.textContent = "✓ Saved";
+        if (isFloatingReel()) {
+          save.innerHTML = savedIcon;
+          save.title = "Saved";
+          save.setAttribute("aria-label", "Reel saved to AI Content Vault");
+        } else save.textContent = "✓ Saved";
         save.style.background = "#166534";
         toggle.disabled = true;
         note.disabled = true;
-        showStatus("Link saved to AI Content Vault!", false);
+        showStatus("Link saved to AI Content Vault!", false, 1500);
       } catch (error) {
         console.error("ACV: Instagram home-feed save failed:", error);
         showStatus("Couldn't contact the extension. Reload it and try again.");
@@ -232,7 +248,11 @@
         saving = false;
         if (!saved) {
           save.disabled = false;
-          if (save.textContent === "Saving…") save.textContent = "🔖 Save to Vault";
+          if (isFloatingReel()) {
+            save.innerHTML = REEL_BOOKMARK_ICON;
+            save.title = "Save Reel to Vault";
+            save.setAttribute("aria-label", "Save Reel to AI Content Vault");
+          } else if (save.textContent === "Saving…") save.textContent = "🔖 Save to Vault";
         }
       }
     }
@@ -240,6 +260,26 @@
     save.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
+      if (resolveCurrentUrl) {
+        const currentUrl = resolveCurrentUrl();
+        if (!currentUrl) {
+          showStatus("Couldn't identify the current Reel. Try again in a moment.");
+          return;
+        }
+        if (currentUrl !== wrapper.dataset.url) {
+          wrapper.dataset.url = currentUrl;
+          saved = false;
+          save.disabled = false;
+          if (isFloatingReel()) save.innerHTML = REEL_BOOKMARK_ICON;
+          else save.textContent = "🔖 Save to Vault";
+          save.title = isFloatingReel() ? "Save Reel to Vault" : "";
+          save.setAttribute("aria-label", isFloatingReel() ? "Save Reel to AI Content Vault" : "Save post to AI Content Vault");
+          save.style.background = "#C2410C";
+          toggle.disabled = false;
+          note.disabled = false;
+          status.style.display = "none";
+        }
+      }
       savePost();
     });
     panel.addEventListener("click", (event) => event.stopPropagation());
@@ -313,74 +353,120 @@
     actionRow.insertAdjacentElement("afterend", createControl(postUrl));
   }
 
+  let reelControl = null;
+
+  function getDisplayedReelUrl(main) {
+    const candidates = [...main.querySelectorAll('a[href]')]
+      .map((link) => {
+        const postUrl = canonicalPostUrl(link.href);
+        const rect = link.getBoundingClientRect();
+        const visible = rect.width > 0 && rect.height > 0 &&
+          rect.bottom > 0 && rect.top < window.innerHeight &&
+          rect.right > 0 && rect.left < window.innerWidth;
+        const centerDistance = Math.abs(
+          rect.top + rect.height / 2 - window.innerHeight / 2
+        );
+        return { postUrl, visible, centerDistance };
+      })
+      .filter((item) => item.postUrl && /\/reel\//.test(item.postUrl) && item.visible)
+      .sort((a, b) => a.centerDistance - b.centerDistance);
+
+    // The route is reliable when Instagram updates it; visible Reel links
+    // handle viewers that keep one route while swapping the card in place.
+    return candidates[0]?.postUrl || getCurrentReelUrl();
+  }
+
+  function showFloatingReelControl(main) {
+    const postUrl = getDisplayedReelUrl(main);
+
+    // Remove controls injected by older versions of this script. Reels use
+    // one viewport-fixed control so scrolling never moves it with a card.
+    main.querySelectorAll("." + CONTROL_CLASS).forEach((node) => {
+      if (node !== reelControl) node.remove();
+    });
+
+    if (!postUrl) return;
+    if (reelControl?.dataset.url !== postUrl) {
+      reelControl?.remove();
+      reelControl = createControl(postUrl, () => {
+        const currentMain = document.querySelector("main") || document.body;
+        return getDisplayedReelUrl(currentMain);
+      });
+      reelControl.dataset.reelFloating = "true";
+      reelControl.style.flexDirection = "column";
+      reelControl.style.gap = "7px";
+      Object.assign(reelControl.style, {
+        position: "fixed",
+        left: "260px",
+        top: "50%",
+        right: "auto",
+        bottom: "auto",
+        transform: "translateY(-50%)",
+        zIndex: "2147483647",
+        margin: "0",
+        padding: "0",
+        background: "transparent",
+        boxShadow: "none",
+      });
+
+      const save = reelControl.querySelector("button");
+      save.textContent = "";
+      save.setAttribute("aria-label", "Save Reel to AI Content Vault");
+      save.title = "Save Reel to Vault";
+      Object.assign(save.style, {
+        justifyContent: "center",
+        width: "42px",
+        height: "42px",
+        padding: "0",
+        borderRadius: "50%",
+        boxShadow: "0 2px 8px rgba(0,0,0,.45)",
+      });
+      save.innerHTML = REEL_BOOKMARK_ICON;
+
+      const toggle = reelControl.querySelectorAll("button")[1];
+      Object.assign(toggle.style, {
+        width: "34px",
+        height: "34px",
+        flex: "0 0 34px",
+        fontSize: "21px",
+        boxShadow: "0 2px 8px rgba(0,0,0,.4)",
+      });
+
+      const panel = reelControl.querySelector("input").parentElement;
+      Object.assign(panel.style, {
+       left: "calc(100% + 8px)",
+right: "auto",
+        bottom: "0",
+        width: "min(250px, 65vw)",
+      });
+      const status = reelControl.querySelector('[role="status"]');
+      Object.assign(status.style, {
+        left: "auto",
+        right: "calc(100% + 8px)",
+        bottom: "0",
+        width: "min(280px, 65vw)",
+      });
+      document.body.appendChild(reelControl);
+    }
+  }
+
   function scanFeed() {
     if (isHomeFeed()) {
+      reelControl?.remove();
+      reelControl = null;
       document.querySelectorAll("article").forEach((article) => addButton(article));
       return;
     }
 
     if (!isReelsViewer()) {
       document.querySelectorAll("." + CONTROL_CLASS).forEach((node) => node.remove());
+      reelControl = null;
       return;
     }
 
     const main = document.querySelector("main") || document.body;
-    const currentReelUrl = getCurrentReelUrl();
 
-    // On /reels/<id>, the route is the source of truth. Instagram often keeps
-    // one viewer mounted while replacing its content as the user scrolls.
-    if (currentReelUrl) {
-      main.querySelectorAll("." + CONTROL_CLASS).forEach((node) => {
-        if (node.dataset.url !== currentReelUrl) node.remove();
-      });
-
-      const matchingArticle = [...main.querySelectorAll("article")].find((article) =>
-        [...article.querySelectorAll('a[href]')]
-          .some((link) => canonicalPostUrl(link.href) === currentReelUrl)
-      );
-
-      addButton(matchingArticle || main, currentReelUrl);
-      return;
-    }
-
-    // At /reels/ without an ID in the address bar, attach to the most visible
-    // reel card and refresh that choice as the nested scroller moves.
-    const candidates = [...main.querySelectorAll("article")]
-      .map((article) => {
-        const postUrl = getPostUrl(article);
-        const rect = article.getBoundingClientRect();
-        const visibleHeight = Math.max(
-          0,
-          Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0)
-        );
-        const visibleWidth = Math.max(
-          0,
-          Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0)
-        );
-        return { article, postUrl, visibleArea: visibleHeight * visibleWidth };
-      })
-      .filter((item) => item.postUrl && /\/reel\//.test(item.postUrl))
-      .sort((a, b) => b.visibleArea - a.visibleArea);
-
-    if (candidates.length) {
-      const active = candidates[0];
-      main.querySelectorAll("." + CONTROL_CLASS).forEach((node) => {
-        if (node.dataset.url !== active.postUrl) node.remove();
-      });
-      addButton(active.article, active.postUrl);
-      return;
-    }
-
-    // Fallback for viewer layouts without article elements.
-    const postUrl = [...main.querySelectorAll('a[href]')]
-      .map((link) => canonicalPostUrl(link.href))
-      .find((url) => url && /\/reel\//.test(url));
-    if (!postUrl) return;
-
-    main.querySelectorAll("." + CONTROL_CLASS).forEach((node) => {
-      if (node.dataset.url !== postUrl) node.remove();
-    });
-    addButton(main, postUrl);
+    showFloatingReelControl(main);
   }
   let scanTimer;
   function scheduleScan() {
@@ -388,13 +474,40 @@
     scanTimer = setTimeout(scanFeed, 250);
   }
 
-  const observer = new MutationObserver(scheduleScan);
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  const observer = new MutationObserver((mutations) => {
+    // Reel navigation can reuse the same card and only update its permalink,
+    // class, or visibility. Ignore mutations caused by our own controls.
+    if (mutations.some((mutation) =>
+      !mutation.target.parentElement?.closest("." + CONTROL_CLASS)
+    )) scheduleScan();
+  });
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["href", "class", "style", "aria-label"],
+  });
+
+  // Instagram uses pushState for /reels/<id> changes without popstate.
+  for (const method of ["pushState", "replaceState"]) {
+    const original = history[method];
+    history[method] = function (...args) {
+      const result = original.apply(this, args);
+      scheduleScan();
+      return result;
+    };
+  }
   window.addEventListener("popstate", scheduleScan);
+  window.addEventListener("resize", scheduleScan, { passive: true });
+  window.addEventListener("orientationchange", scheduleScan, { passive: true });
   document.addEventListener("scroll", scheduleScan, { capture: true, passive: true });
   document.addEventListener("wheel", scheduleScan, { capture: true, passive: true });
   scanFeed();
 })();
+
+
+
+
 
 
 
