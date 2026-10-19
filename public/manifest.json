@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "AI Content Vault",
+  "name": "AI Content Saver",
   "version": "1.0.0",
   "icons": {
-    "48": "icons/vault.png",
-    "128": "icons/vault.png"
-  },
-  "description": "Save YouTube videos and Instagram posts to AI Content Vault.",
+  "48": "favicon.png",
+  "128": "favicon.png"
+},
+  "description": "Save YouTube videos and Instagram posts within the browser and search when needed in AI Content Vault.",
   "permissions": ["storage", "identity"],
   "host_permissions": [
     "https://www.youtube.com/*",
@@ -32,7 +32,7 @@
     }
   ],
   "action": {
-    "default_icon": "icons/vault.png",
-    "default_popup": "index.html"
-  }
+  "default_icon": "favicon.png",
+  "default_popup": "index.html"
+}
 }

@@ -225,7 +225,7 @@
           const message = response.status === 401
             ? "Please sign in to AI Content Vault from the extension."
             : response.status === 409
-              ? (response.error || "This link is already in your Content Vault.")
+              ? (response.error || "This link is already saved.")
               : (response.error || "Couldn't save this post. Please try again.");
           showStatus(message);
           return;
@@ -434,8 +434,8 @@
 
       const panel = reelControl.querySelector("input").parentElement;
       Object.assign(panel.style, {
-       left: "calc(100% + 8px)",
-right: "auto",
+       left: "auto",
+right: "calc(100% + 8px)",
         bottom: "0",
         width: "min(250px, 65vw)",
       });

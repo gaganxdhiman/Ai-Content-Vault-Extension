@@ -198,8 +198,9 @@ const Dashboard = ({ setLoading, token, setToken }) => {
             Open an Instagram Reel or YouTube video and save it directly to your vault.
           </p>
 
+ <h3>Ready to search?</h3>
           <button className="primary-btn" onClick={openVault}>
-            Open Content Vault ↗
+            Visit AI Content Vault ↗
           </button>
         </section>
 
