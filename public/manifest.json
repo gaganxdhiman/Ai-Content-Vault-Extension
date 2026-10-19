@@ -2,6 +2,10 @@
   "manifest_version": 3,
   "name": "AI Content Vault",
   "version": "1.0.0",
+  "icons": {
+    "48": "icons/vault.png",
+    "128": "icons/vault.png"
+  },
   "description": "Save YouTube videos and Instagram posts to AI Content Vault.",
   "permissions": ["storage", "identity"],
   "host_permissions": [
@@ -28,6 +32,7 @@
     }
   ],
   "action": {
+    "default_icon": "icons/vault.png",
     "default_popup": "index.html"
   }
 }
