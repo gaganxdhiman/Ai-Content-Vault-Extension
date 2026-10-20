@@ -1,6 +1,7 @@
 
 /* =========================================================
-   AI CONTENT VAULT — YOUTUBE WATCH-PAGE SAVE BUTTON
+   AI CONTENT VAULT — YOUTUBE VIDEO SAVE CONTROLS
+   - Save action in homepage video three-dot menus
    - Save button beside Like/Dislike
    - Compact optional note toggle (+ / −)
    - Success and error messages
@@ -10,6 +11,9 @@
 
 let acvWatchButtonUrl = "";
 let acvWatchObserverTimer = null;
+let acvHomeMenuVideo = null;
+let acvHomeMenuAnchor = null;
+let acvHomeMenuTimer = null;
 
 // ---------------------------------------------------------
 // Toast notifications
@@ -39,6 +43,206 @@ function acvShowToast(message, type = "success") {
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 3500);
 }
+
+// ---------------------------------------------------------
+// Save action in homepage video three-dot menus
+// ---------------------------------------------------------
+
+function acvGetHomepageVideoDetails(card) {
+  const links = [...card.querySelectorAll('a[href]')];
+
+  for (const link of links) {
+    try {
+      const url = new URL(link.href, location.href);
+      if (!/(^|\.)youtube\.com$/i.test(url.hostname)) continue;
+
+      let videoUrl = null;
+      if (url.pathname === "/watch" && url.searchParams.has("v")) {
+        videoUrl = `${location.origin}/watch?v=${encodeURIComponent(url.searchParams.get("v"))}`;
+      } else if (url.pathname.startsWith("/shorts/")) {
+        videoUrl = `${location.origin}${url.pathname}`;
+      }
+      if (!videoUrl) continue;
+
+      const titleElement = card.querySelector(
+        "#video-title, yt-formatted-string#video-title, h3"
+      );
+      return {
+        videoUrl,
+        videoTitle: titleElement?.textContent?.trim() || link.getAttribute("title") || "",
+      };
+    } catch {
+      // Ignore malformed or non-video links in the card.
+    }
+  }
+
+  return null;
+}
+
+function acvCreateHomepageSaveMenuItem(details) {
+  const item = document.createElement("ytd-menu-service-item-renderer");
+  item.className = "style-scope ytd-menu-popup-renderer acv-home-save-menu-item";
+  item.setAttribute("role", "menuitem");
+  item.setAttribute("tabindex", "0");
+  item.dataset.url = details.videoUrl;
+  Object.assign(item.style, { display: "block", width: "100%" });
+
+  const paperItem = document.createElement("tp-yt-paper-item");
+  paperItem.className = "style-scope ytd-menu-service-item-renderer";
+  paperItem.setAttribute("role", "option");
+  Object.assign(paperItem.style, {
+    display: "flex",
+    alignItems: "center",
+    minHeight: "48px",
+    padding: "0 16px",
+    boxSizing: "border-box",
+    color: "var(--yt-spec-text-primary, #0f0f0f)",
+    font: "14px Roboto, Arial, sans-serif",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  });
+
+  const icon = document.createElement("span");
+  icon.textContent = "🔖";
+  icon.setAttribute("aria-hidden", "true");
+  icon.style.marginRight = "16px";
+
+  const label = document.createElement("yt-formatted-string");
+  label.className = "style-scope ytd-menu-service-item-renderer";
+  label.textContent = "Save to AI Content Vault";
+  paperItem.append(icon, label);
+  item.appendChild(paperItem);
+
+  async function saveHomepageVideo(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (item.dataset.saving === "true" || item.dataset.saved === "true") return;
+
+    item.dataset.saving = "true";
+    label.textContent = "Saving to Vault…";
+    try {
+      let response = await chrome.runtime.sendMessage({
+        type: "ACV_SAVE_LINK",
+        url: details.videoUrl,
+        note: "",
+      });
+
+      if (response?.requiresNote) {
+        const note = window.prompt(
+          response.message || "Couldn't fetch video details. Add an optional note to save this video:",
+          ""
+        );
+        if (note === null) {
+          label.textContent = "Save to AI Content Vault";
+          return;
+        }
+        response = await chrome.runtime.sendMessage({
+          type: "ACV_SAVE_LINK",
+          url: details.videoUrl,
+          note: note.trim(),
+        });
+      }
+
+      if (!response) {
+        throw new Error("No response from the extension. Reload it and try again.");
+      }
+      if (!response.success) {
+        if (response.status === 401) {
+          throw new Error("Please sign in to AI Content Vault from the extension.");
+        }
+        if (response.status === 409) {
+          throw new Error(response.error || "This link is already in your Content Vault.");
+        }
+        throw new Error(response.error || "Couldn't save this video. Please try again.");
+      }
+
+      item.dataset.saved = "true";
+      label.textContent = "Saved to AI Content Vault";
+      acvShowToast("Video saved to AI Content Vault!", "success");
+    } catch (error) {
+      console.error("ACV: Homepage video save failed:", error);
+      label.textContent = "Save to AI Content Vault";
+      acvShowToast(error.message || "Couldn't contact the extension. Reload it and try again.", "error");
+    } finally {
+      delete item.dataset.saving;
+    }
+  }
+
+  item.addEventListener("click", saveHomepageVideo);
+  item.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") saveHomepageVideo(event);
+  });
+  return item;
+}
+
+function acvInjectHomepageMenuItem() {
+  if (!acvHomeMenuVideo || location.pathname !== "/") return;
+
+  const anchorRect = acvHomeMenuAnchor?.getBoundingClientRect();
+  const popups = [...document.querySelectorAll("ytd-menu-popup-renderer")].filter((popup) => {
+    const rect = popup.getBoundingClientRect();
+    const style = getComputedStyle(popup);
+    return rect.width > 0 && rect.height > 0 &&
+      style.display !== "none" && style.visibility !== "hidden" &&
+      style.opacity !== "0";
+  });
+  popups.sort((a, b) => {
+    if (!anchorRect) return 0;
+    const aRect = a.getBoundingClientRect();
+    const bRect = b.getBoundingClientRect();
+    const aDistance = Math.hypot(
+      aRect.left + aRect.width / 2 - (anchorRect.left + anchorRect.width / 2),
+      aRect.top + aRect.height / 2 - (anchorRect.top + anchorRect.height / 2)
+    );
+    const bDistance = Math.hypot(
+      bRect.left + bRect.width / 2 - (anchorRect.left + anchorRect.width / 2),
+      bRect.top + bRect.height / 2 - (anchorRect.top + anchorRect.height / 2)
+    );
+    return aDistance - bDistance;
+  });
+  const popup = popups[0];
+  if (!popup) return;
+
+  popup.querySelectorAll(".acv-home-save-menu-item").forEach((oldItem) => oldItem.remove());
+  const list = popup.querySelector("tp-yt-paper-listbox, [role='listbox']") || popup;
+  list.appendChild(acvCreateHomepageSaveMenuItem(acvHomeMenuVideo));
+  acvHomeMenuVideo = null;
+  acvHomeMenuAnchor = null;
+}
+
+function acvScheduleHomepageMenuInjection() {
+  if (!acvHomeMenuVideo || location.pathname !== "/") return;
+  clearTimeout(acvHomeMenuTimer);
+  acvHomeMenuTimer = setTimeout(acvInjectHomepageMenuItem, 80);
+}
+
+document.addEventListener("click", (event) => {
+  if (location.pathname !== "/") return;
+
+  const path = event.composedPath();
+  const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+  if (target?.closest(".acv-home-save-menu-item, ytd-menu-popup-renderer")) return;
+  const triggerSelector =
+    "ytd-menu-renderer, button[aria-label*='Action menu'], yt-icon-button[aria-label*='Action menu']";
+  const menuTrigger = path.find((node) =>
+    node instanceof Element && node.matches(triggerSelector)
+  ) || target?.closest(triggerSelector);
+  if (!menuTrigger) return;
+
+  const card = menuTrigger.closest(
+    "ytd-rich-item-renderer, ytd-rich-grid-media, ytd-video-renderer, ytd-grid-video-renderer, ytd-compact-video-renderer"
+  );
+  if (!card) return;
+
+  acvHomeMenuVideo = acvGetHomepageVideoDetails(card);
+  if (!acvHomeMenuVideo) return;
+  acvHomeMenuAnchor = menuTrigger;
+
+  // YouTube creates the popup after the three-dot click handler runs.
+  [80, 250, 600, 1000].forEach((delay) => {
+    setTimeout(acvInjectHomepageMenuItem, delay);
+  });
+}, true);
 
 // ---------------------------------------------------------
 // Current video details
@@ -500,6 +704,10 @@ window.addEventListener(
 
 // Detect when YouTube replaces the video or action row.
 const acvWatchPageObserver = new MutationObserver(() => {
+  if (acvHomeMenuVideo) {
+    acvScheduleHomepageMenuInjection();
+  }
+
   const current = acvGetCurrentVideoDetails();
 
   if (!current) {
