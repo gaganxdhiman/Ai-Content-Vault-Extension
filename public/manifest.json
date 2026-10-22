@@ -17,14 +17,14 @@
     "service_worker": "background.js"
   },
   "content_scripts": [
-    {
-      "matches": [
-        "https://www.youtube.com/*",
-        "https://m.youtube.com/*"
-      ],
-      "js": ["youtube.js"],
-      "run_at": "document_idle"
-    },
+   {
+  "matches": [
+    "https://www.youtube.com/*",
+    "https://m.youtube.com/*"
+  ],
+  "js": ["youtube.js", "youtube-home.js"],
+  "run_at": "document_idle"
+},
     {
       "matches": ["https://www.instagram.com/*"],
       "js": ["instagram.js"],
