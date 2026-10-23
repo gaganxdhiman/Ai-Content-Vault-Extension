@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "AI Content Saver",
+  "name": "AI Content Saver— Save Reels & Videos",
   "version": "1.0.0",
   "icons": {
-  "48": "favicon.png",
-  "128": "favicon.png"
-},
-  "description": "Save YouTube videos and Instagram posts within the browser and search when needed in AI Content Vault.",
+    "48": "favicon.png",
+    "128": "favicon.png"
+  },
+  "description": "Save YouTube videos, Shorts, Instagram posts, and Reels to your AI Content Vault with optional notes.",
   "permissions": ["storage", "identity"],
   "host_permissions": [
     "https://www.youtube.com/*",
@@ -17,14 +17,14 @@
     "service_worker": "background.js"
   },
   "content_scripts": [
-   {
-  "matches": [
-    "https://www.youtube.com/*",
-    "https://m.youtube.com/*"
-  ],
-  "js": ["youtube.js", "youtube-home.js"],
-  "run_at": "document_idle"
-},
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://m.youtube.com/*"
+      ],
+      "js": ["youtube.js", "youtube-home.js"],
+      "run_at": "document_idle"
+    },
     {
       "matches": ["https://www.instagram.com/*"],
       "js": ["instagram.js"],
@@ -32,7 +32,7 @@
     }
   ],
   "action": {
-  "default_icon": "favicon.png",
-  "default_popup": "index.html"
-}
+    "default_icon": "favicon.png",
+    "default_popup": "index.html"
+  }
 }

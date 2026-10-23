@@ -5,6 +5,15 @@
   const CONTROL_CLASS = "acv-instagram-save";
   const POST_PATH = /^\/(?:p|reel|tv)\/[^/]+/;
   const REEL_BOOKMARK_ICON = '<svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 4.75A1.75 1.75 0 0 1 7.75 3h8.5A1.75 1.75 0 0 1 18 4.75V21l-6-3.8L6 21V4.75Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>';
+  const REEL_SAVING_ICON = '<svg class="acv-instagram-saving-spinner" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="38 18"/></svg>';
+
+  function ensureReelSpinnerStyle() {
+    if (document.getElementById("acv-instagram-spinner-style")) return;
+    const style = document.createElement("style");
+    style.id = "acv-instagram-spinner-style";
+    style.textContent = "@keyframes acvInstagramSpin{to{transform:rotate(360deg)}}.acv-instagram-saving-spinner{animation:acvInstagramSpin .8s linear infinite}";
+    (document.head || document.documentElement).appendChild(style);
+  }
 
   function isHomeFeed() {
     return location.pathname === "/";
@@ -189,8 +198,13 @@
       if (saving || saved) return;
       saving = true;
       save.disabled = true;
-      if (isFloatingReel()) save.title = "Saving…";
-      else save.textContent = "Saving…";
+      if (isFloatingReel()) {
+        ensureReelSpinnerStyle();
+        save.innerHTML = REEL_SAVING_ICON;
+        save.title = "Saving Reel…";
+        save.setAttribute("aria-label", "Saving Reel to AI Content Vault");
+        toggle.disabled = true;
+      } else save.textContent = "Saving…";
       status.style.display = "none";
 
       try {
@@ -252,6 +266,7 @@
             save.innerHTML = REEL_BOOKMARK_ICON;
             save.title = "Save Reel to Vault";
             save.setAttribute("aria-label", "Save Reel to AI Content Vault");
+            toggle.disabled = false;
           } else if (save.textContent === "Saving…") save.textContent = "🔖 Save to Vault";
         }
       }
@@ -354,6 +369,7 @@
   }
 
   let reelControl = null;
+  let reelControlPosition = null;
 
   function getDisplayedReelUrl(main) {
     const candidates = [...main.querySelectorAll('a[href]')]
@@ -374,6 +390,70 @@
     // The route is reliable when Instagram updates it; visible Reel links
     // handle viewers that keep one route while swapping the card in place.
     return candidates[0]?.postUrl || getCurrentReelUrl();
+  }
+
+  // Only the visible three-dot grip drags the Reel control group. The two
+  // action buttons keep their normal pointer cursor and click behavior.
+  function enableReelControlDragging(wrapper) {
+    const handle = wrapper.querySelector(".acv-reel-drag-handle");
+    if (!handle) return;
+    let drag = null;
+    let suppressClickUntil = 0;
+
+    function move(event) {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+      if (!drag.moved) handle.setPointerCapture?.(drag.pointerId);
+      drag.moved = true;
+
+      const rect = wrapper.getBoundingClientRect();
+      const left = Math.max(0, Math.min(window.innerWidth - rect.width, drag.left + dx));
+      const top = Math.max(0, Math.min(window.innerHeight - rect.height, drag.top + dy));
+      wrapper.style.left = `${left}px`;
+      wrapper.style.top = `${top}px`;
+      wrapper.style.right = "auto";
+      wrapper.style.bottom = "auto";
+      wrapper.style.transform = "none";
+      reelControlPosition = { left, top };
+      event.preventDefault();
+    }
+
+    function finish(event) {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      if (drag.moved) suppressClickUntil = Date.now() + 350;
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", finish);
+      document.removeEventListener("pointercancel", finish);
+      drag = null;
+    }
+
+    wrapper.addEventListener("click", event => {
+      if (!suppressClickUntil || Date.now() > suppressClickUntil) return;
+      suppressClickUntil = 0;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    }, true);
+
+    handle.style.cursor = "grab";
+    handle.style.touchAction = "none";
+    handle.addEventListener("pointerdown", event => {
+      if (event.button !== undefined && event.button !== 0) return;
+      const rect = wrapper.getBoundingClientRect();
+      drag = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        left: rect.left,
+        top: rect.top,
+        moved: false,
+      };
+      document.addEventListener("pointermove", move, { passive: false });
+      document.addEventListener("pointerup", finish);
+      document.addEventListener("pointercancel", finish);
+    });
   }
 
   function showFloatingReelControl(main) {
@@ -397,17 +477,50 @@
       reelControl.style.gap = "7px";
       Object.assign(reelControl.style, {
         position: "fixed",
-        left: "260px",
-        top: "50%",
+        left: `${reelControlPosition?.left ?? 260}px`,
+        top: reelControlPosition ? `${reelControlPosition.top}px` : "50%",
         right: "auto",
         bottom: "auto",
-        transform: "translateY(-50%)",
+        transform: reelControlPosition ? "none" : "translateY(-50%)",
         zIndex: "2147483647",
         margin: "0",
-        padding: "0",
-        background: "transparent",
-        boxShadow: "none",
+        padding: "6px",
+        border: "1px solid rgba(255,255,255,.24)",
+        borderRadius: "12px",
+        background: "rgba(24,24,24,.94)",
+        boxShadow: "0 4px 16px rgba(0,0,0,.45)",
       });
+
+      const dragHandle = document.createElement("div");
+      dragHandle.className = "acv-reel-drag-handle";
+      dragHandle.title = "Drag to move";
+      dragHandle.setAttribute("aria-label", "Drag Reel save controls to move");
+      Object.assign(dragHandle.style, {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "4px",
+        width: "100%",
+        height: "14px",
+        marginBottom: "5px",
+        borderRadius: "8px",
+        background: "rgba(255,255,255,.16)",
+        cursor: "grab",
+        touchAction: "none",
+      });
+      for (let i = 0; i < 3; i++) {
+        const dot = document.createElement("span");
+        Object.assign(dot.style, {
+          display: "block",
+          width: "4px",
+          height: "4px",
+          borderRadius: "50%",
+          background: "#f4f4f5",
+          pointerEvents: "none",
+        });
+        dragHandle.appendChild(dot);
+      }
+      reelControl.insertBefore(dragHandle, reelControl.firstChild);
 
       const save = reelControl.querySelector("button");
       save.textContent = "";
@@ -434,18 +547,19 @@
 
       const panel = reelControl.querySelector("input").parentElement;
       Object.assign(panel.style, {
-       left: "auto",
-right: "calc(100% + 8px)",
+        left: "calc(100% + 8px)",
+        right: "auto",
         bottom: "0",
         width: "min(250px, 65vw)",
       });
       const status = reelControl.querySelector('[role="status"]');
       Object.assign(status.style, {
-        left: "auto",
-        right: "calc(100% + 8px)",
+        left: "calc(100% + 8px)",
+        right: "auto",
         bottom: "0",
         width: "min(280px, 65vw)",
       });
+      enableReelControlDragging(reelControl);
       document.body.appendChild(reelControl);
     }
   }
