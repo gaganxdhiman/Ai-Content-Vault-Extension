@@ -42,34 +42,14 @@ function App() {
 
         try {
           const url = new URL(redirectUrl);
-          const code = url.searchParams.get("code");
+          const token = url.searchParams.get("token");
 
-          if (!code) {
-            throw new Error("Google authorization code missing.");
+          if (!token) {
+            throw new Error("App token missing from redirect.");
           }
 
-          const response = await fetch(
-            "https://aicontentvault.site/api/extension/auth/exchange",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ code }),
-            }
-          );
-
-          const data = await response.json();
-
-          if (!response.ok || !data.token) {
-            throw new Error(data.error || "Google login failed.");
-          }
-
-          await chrome.storage.local.set({
-            token: data.token,
-          });
-
-          setToken(data.token);
+          await chrome.storage.local.set({ token });
+          setToken(token);
         } catch (err) {
           setError(err.message || "Login failed.");
         } finally {
@@ -98,11 +78,11 @@ function App() {
   return (
     <div className="app">
       <div className="login-card">
-    
+
 
         <span className="badge-tag">[ LOGIN/REGISTER ]</span>
-   
-       
+
+
 
         <h1>AI Content Vault</h1>
 
